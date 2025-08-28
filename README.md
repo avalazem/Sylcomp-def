@@ -3,7 +3,7 @@ Pipeline for analyzing child-directed phonetic data from the IPA-CHILDES corpus
 - The phonemes in these syllables are then mapped to either "V" for vowel or "C" for consonant.
 - "Manual" tells the algorithm to only consider language-specific diphthongs from "datasets", and to consider any other vowel combination VV.
 - If not specified, any double vowel combination will be recognized as a diphthong and therefore used as the syllable nucleus V in "syllabify".
-- 
+  
 # Usage:
     python run.py --language {language} [--manual]
 
