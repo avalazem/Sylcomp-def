@@ -1,0 +1,4 @@
+# Diphthongs for Quechua
+# Add diphthongs one per line
+# Example: ai
+# Example: ou
