@@ -34,9 +34,13 @@ Examples:
   python run.py --language Mandarin
   python run.py --language Japanese --manual
   python run.py -l EnglishNA -m
-  python run.py --all
-  python run.py --all --manual
         """
+    )
+    
+    parser.add_argument(
+        '--all', '-a',
+        action='store_true',
+        help='Process all available languages'
     )
     
     parser.add_argument(
@@ -60,9 +64,9 @@ Examples:
     )
     
     parser.add_argument(
-        '--all', '-a',
+        '--speaker-specific', '-s',
         action='store_true',
-        help='Process all available languages'
+        help='Perform analysis on a single, randomly selected speaker for each language.'
     )
     
     args = parser.parse_args()
@@ -78,6 +82,7 @@ Examples:
     if args.all:
         print(f"Processing all {len(AVAILABLE_LANGUAGES)} languages...")
         print(f"Manual diphthong loading: {'Yes' if args.manual else 'No'}")
+        print(f"Speaker-specific analysis: {'Yes' if args.speaker_specific else 'No'}")
         
         for i, language in enumerate(AVAILABLE_LANGUAGES, 1):
             print(f"\n{'='*60}")
@@ -85,19 +90,19 @@ Examples:
             print(f"{'='*60}")
             
             try:
-                process_language(language, manually_load_diphthongs=args.manual)
+                process_language(language, manually_load_diphthongs=args.manual, speaker_specific=args.speaker_specific)
                 print(f"✓ Successfully processed {language}")
             except Exception as e:
-                print(f"✗ Error processing {language}: {e}")
-        
-        print(f"\n🎉 Finished processing all {len(AVAILABLE_LANGUAGES)} languages!")
+                print(f"  - ✗ Error processing {language}: {e}")
+
     else:
         # Process the selected language
         print(f"Processing language: {args.language}")
         print(f"Manual diphthong loading: {'Yes' if args.manual else 'No'}")
+        print(f"Speaker-specific analysis: {'Yes' if args.speaker_specific else 'No'}")
         
-        process_language(args.language, manually_load_diphthongs=args.manual)
+        process_language(args.language, manually_load_diphthongs=args.manual, speaker_specific=args.speaker_specific)
     
 if __name__ == "__main__":
     main()
-    
+

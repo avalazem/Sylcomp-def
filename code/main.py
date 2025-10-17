@@ -16,13 +16,14 @@ import os
 from utils import load_ipa_childes_dataset, PhonemeProcessor, syllabify_word, map_phonemes_to_categories
 
 # Combined function to generate both detailed syllable CSV and syllable frequency CSV
-def generate_syllable_analysis(language, manually_load_diphthongs=False):
+def generate_syllable_analysis(language, manually_load_diphthongs=False, speaker_specific=False):
     """
     Generates both detailed syllable CSV and syllable frequency CSV for a given language.
     
     Args:
         language (str): The language code (e.g., 'English', 'French', etc.)
         manually_load_diphthongs (bool): If True, loads diphthongs from file; if False, uses algorithm
+        speaker_specific (bool): If True, performs analysis on a single random speaker.
         
     Returns:
         tuple: (detailed_df, frequency_df) - DataFrames containing syllable analysis
@@ -30,7 +31,7 @@ def generate_syllable_analysis(language, manually_load_diphthongs=False):
     print(f"Processing {language} dataset...")
     
     # Step 1: Load the dataset
-    words_data = load_ipa_childes_dataset(language)
+    words_data, selected_speaker_id = load_ipa_childes_dataset(language, speaker_specific=speaker_specific)
     if not words_data:
         print(f"No words found for {language}")
         return pd.DataFrame(), pd.DataFrame()  # Return empty DataFrames
@@ -145,6 +146,10 @@ def generate_syllable_analysis(language, manually_load_diphthongs=False):
     # Add suffix based on diphthong loading method
     method_suffix = "_manual" if manually_load_diphthongs else "_auto"
     
+    # Add speaker ID to suffix if applicable
+    if speaker_specific and selected_speaker_id:
+        method_suffix += f"_speaker_{selected_speaker_id}"
+        
     # Save detailed syllable CSV
     detailed_filename = os.path.join(language_output_dir, f'{language}-syllables{method_suffix}.csv')
     detailed_df.to_csv(detailed_filename, index=False, encoding='utf-8')
@@ -190,13 +195,14 @@ def generate_syllable_analysis(language, manually_load_diphthongs=False):
     return detailed_df, frequency_df, consonant_clusters_df, diphthongs_df
 
 # Combines everything above into a single function to process a language
-def process_language(language_code, manually_load_diphthongs=False):
+def process_language(language_code, manually_load_diphthongs=False, speaker_specific=False):
     """
     Process a specific language and generate syllable CSV files.
     
     Args:
         language_code (str): Language code from AVAILABLE_LANGUAGES
         manually_load_diphthongs (bool): If True, loads diphthongs from file; if False, uses algorithm
+        speaker_specific (bool): If True, performs analysis on a single random speaker.
     
     Returns:
         tuple: (detailed_df, frequency_df, consonant_clusters_df, diphthongs_df) - DataFrames containing the analysis
@@ -206,9 +212,19 @@ def process_language(language_code, manually_load_diphthongs=False):
     print(f"{'='*50}")
     
     try:
-        detailed_df, frequency_df, consonant_clusters_df, diphthongs_df = generate_syllable_analysis(language_code, manually_load_diphthongs)
+        detailed_df, frequency_df, consonant_clusters_df, diphthongs_df = generate_syllable_analysis(
+            language_code, 
+            manually_load_diphthongs=manually_load_diphthongs,
+            speaker_specific=speaker_specific
+        )
         return detailed_df, frequency_df, consonant_clusters_df, diphthongs_df
         
     except Exception as e:
         print(f"Error processing {language_code}: {e}")
         return None, None, None, None
+        
+# Example usage:
+if __name__ == '__main__':
+    # For testing: process a single language with both manual and automatic diphthong loading
+    process_language('English', manually_load_diphthongs=True, speaker_specific=True)
+    process_language('English', manually_load_diphthongs=False, speaker_specific=True)

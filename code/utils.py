@@ -19,6 +19,7 @@ Adapted into IPA-CHILDES pipeline by Ali Al-Azem avalazem@gmail.com 2025-07. Git
 import sys
 import os
 import re
+import random
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from datasets import load_dataset
 
@@ -46,20 +47,23 @@ PHONEME_MAPPING = {
 }
 
 # Function to load the dataset from IPA-CHILDES
-def load_ipa_childes_dataset(LANGUAGE):
+def load_ipa_childes_dataset(LANGUAGE, speaker_specific=False):
     try: 
         print(f"Loading dataset for language: {LANGUAGE}")
         ipa_childes_ds = load_dataset("phonemetransformers/IPA-CHILDES", f"{LANGUAGE}")
         print("Dataset loaded successfully")
-        print(f"Dataset keys: {list(ipa_childes_ds.keys())}")
-        words_data = extract_words(ipa_childes_ds)
-        return words_data  # Return the extracted words data
+        
+        # Pass the full dataset and the speaker_specific flag to extract_words
+        words_data, selected_speaker_id = extract_words(ipa_childes_ds, speaker_specific=speaker_specific)
+        
+        return words_data, selected_speaker_id
+        
     except Exception as e:
         print(f"An error occurred while loading the dataset: {e}")
-        return None
+        return None, None
 
 # Function to filter out adult-spoken words and extract both IPA and character split utterances
-def extract_words(ipa_childes_ds):
+def extract_words(ipa_childes_ds, speaker_specific=False):
     if ipa_childes_ds is not None:
         print(f"Dataset type: {type(ipa_childes_ds)}")
         print(f"Dataset keys: {list(ipa_childes_ds.keys()) if hasattr(ipa_childes_ds, 'keys') else 'No keys'}")
@@ -81,11 +85,38 @@ def extract_words(ipa_childes_ds):
         
         if len(adult_spoken_ds) == 0:
             print("No adult-spoken utterances found!")
-            return []
-        
+            return [], None
+            
+        selected_speaker_id = None
+        if speaker_specific:
+            print("Performing speaker-specific analysis by selecting the most frequent speaker...")
+            
+            # Get unique speaker IDs and their counts
+            speaker_counts = {}
+            for speaker_id in adult_spoken_ds['speaker_id']:
+                speaker_counts[speaker_id] = speaker_counts.get(speaker_id, 0) + 1
+
+            if not speaker_counts:
+                print("No speaker data found. Cannot perform speaker-specific analysis.")
+                return [], None
+            
+            # Find the speaker with the most utterances
+            selected_speaker_id = max(speaker_counts, key=speaker_counts.get)
+            print(f"Selected speaker with most utterances: {selected_speaker_id} ({speaker_counts[selected_speaker_id]} utterances)")
+            
+            # Filter the dataset for the selected speaker
+            speaker_specific_ds = adult_spoken_ds.filter(lambda x: x['speaker_id'] == selected_speaker_id)
+            print(f"Filtered dataset for speaker {selected_speaker_id} has {len(speaker_specific_ds)} examples.")
+            
+            # Use this filtered dataset for word extraction
+            dataset_to_process = speaker_specific_ds
+        else:
+            # Use the full adult-spoken dataset
+            dataset_to_process = adult_spoken_ds
+
         # Extract words with both IPA and character split utterances
         words_data = []
-        for example in adult_spoken_ds:
+        for example in dataset_to_process:
             ipa_words = example['ipa_transcription'].split('WORD_BOUNDARY')
             char_words = example['processed_gloss'].split(' ')
             
@@ -99,10 +130,10 @@ def extract_words(ipa_childes_ds):
                     })
         
         print(f"Extracted {len(words_data)} words total")
-        return words_data
+        return words_data, selected_speaker_id
     else:
         print("Dataset is None")
-        return None
+        return None, None
 
 class PhonemeProcessor:
     """Class to handle classifying vowels and extracting valid onsets."""
