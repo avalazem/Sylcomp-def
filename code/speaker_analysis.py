@@ -14,16 +14,17 @@ import pandas as pd
 import os
 import argparse
 from collections import Counter
-from utils import PhonemeProcessor, map_phonemes_to_categories
+from utils import PhonemeProcessor, map_phonemes_to_categories, syllabify_word
 from run import AVAILABLE_LANGUAGES
 from datasets import load_dataset
 
-def get_speaker_data(language, min_words):
+def get_speaker_data(language, num_speakers, min_words):
     """
     Loads the dataset for a language and filters for adult speakers who meet the minimum word count.
     
     Args:
         language (str): The language to process.
+        num_speakers (int): The number of top speakers to select.
         min_words (int): The minimum number of words a speaker must have to be included.
         
     Returns:
@@ -63,35 +64,55 @@ def get_speaker_data(language, min_words):
         
     print(f"  - Found {len(prolific_speakers)} adult speakers with >= {min_words} words.")
     
-    # Select all speakers
-    selected_speaker_ids = prolific_speakers.index.tolist()
+    # If the number of prolific speakers is less than num_speakers, take all of them.
+    # Otherwise, take a random sample.
+    if len(prolific_speakers) <= num_speakers:
+        sampled_speakers = prolific_speakers
+        print(f"  - Taking all {len(prolific_speakers)} prolific speakers.")
+    else:
+        # Use random_state for reproducibility
+        sampled_speakers = prolific_speakers.sample(n=num_speakers, random_state=42)
+        print(f"  - Randomly selected {num_speakers} speakers.")
+
+    selected_speaker_ids = sampled_speakers.index.tolist()
     selected_speakers_df = adult_df[adult_df['speaker_id'].isin(selected_speaker_ids)]
-    
-    print(f"  - Analyzing all {len(selected_speaker_ids)} prolific speakers.")
-    
+        
     return selected_speakers_df, selected_speaker_ids, adult_df, speaker_word_counts
 
 
-def calculate_phoneme_stats(df, processor, vowels, sorted_vowels):
-    """Calculates phoneme counts and frequencies for a given DataFrame."""
+def calculate_stats(df, processor, vowels, sorted_vowels, valid_onsets):
+    """Calculates phoneme counts, frequencies, and syllable pattern counts for a given DataFrame."""
     all_phoneme_patterns = []
+    syllable_pattern_counts = Counter()
+
     for ipa_transcription in df['ipa_transcription'].dropna():
         words = ipa_transcription.split('WORD_BOUNDARY')
         for word in words:
-            if not word.strip():
+            word = word.strip()
+            if not word:
                 continue
             
-            phoneme_pattern = map_phonemes_to_categories(word.strip(), vowels, sorted_vowels)
+            # Phoneme analysis for the whole word
+            phoneme_pattern = map_phonemes_to_categories(word, vowels, sorted_vowels)
             all_phoneme_patterns.append(phoneme_pattern)
+
+            # Syllable analysis
+            syllabified_word = syllabify_word(word, sorted_vowels, valid_onsets)
+            if syllabified_word:
+                syllable_list = [s for s in syllabified_word.split('/') if s]
+                for syllable in syllable_list:
+                    pattern = map_phonemes_to_categories(syllable, vowels, sorted_vowels)
+                    if pattern:
+                        syllable_pattern_counts[pattern] += 1
             
     all_patterns_str = "".join(all_phoneme_patterns)
     
+    # Calculate phoneme stats
     counts = {
         'C': all_patterns_str.count('C'), 'V': all_patterns_str.count('V'),
         'F': all_patterns_str.count('F'), 'G': all_patterns_str.count('G'),
         'L': all_patterns_str.count('L'), 'N': all_patterns_str.count('N'),
     }
-    
     total_phonemes = sum(counts.values())
     
     stats = {}
@@ -99,6 +120,10 @@ def calculate_phoneme_stats(df, processor, vowels, sorted_vowels):
         stats[f'{phoneme}_count'] = count
         stats[f'{phoneme}_freq'] = count / total_phonemes if total_phonemes > 0 else 0
         
+    # Add syllable pattern counts, prefixed with 'syl_'
+    for pattern, count in syllable_pattern_counts.items():
+        stats[f'syl_{pattern}'] = count
+
     return stats
 
 
@@ -109,7 +134,8 @@ def main():
     group.add_argument('--all', action='store_true', help='Run for all available languages.')
 
     parser.add_argument('-m', '--manual', action='store_true', help='Use manual diphthong loading.')
-    parser.add_argument('--min-words', type=int, default=500, help='Minimum number of words for a speaker to be included.')
+    parser.add_argument('--num-speakers', type=int, default=20, help='Number of adult speakers to analyze.')
+    parser.add_argument('--min-words', type=int, default=10, help='Minimum number of words for a speaker to be included.')
     
     args = parser.parse_args()
 
@@ -124,7 +150,7 @@ def main():
         print(f"Processing language: {language}")
         try:
             # --- Data Loading and Filtering ---
-            selected_speakers_df, speaker_ids, full_adult_df, speaker_word_counts = get_speaker_data(language, args.min_words)
+            selected_speakers_df, speaker_ids, full_adult_df, speaker_word_counts = get_speaker_data(language, args.num_speakers, args.min_words)
             
             if full_adult_df is None:
                 print(f"Skipping {language} due to data loading issues.")
@@ -145,23 +171,28 @@ def main():
                 print(f"Error: No vowels were loaded for {language}. Cannot proceed.")
                 continue
 
+            # --- Extract Onsets for Syllabification ---
+            print("Extracting valid onsets for syllabification...")
+            valid_onsets = processor.extract_valid_onsets(all_adult_words, vowels)
+            print(f"  - Found {len(valid_onsets)} unique onsets.")
+
             # --- Analysis ---
             language_results = []
             
             # 1. Baseline: Entire adult dataset
-            print("Calculating baseline phoneme stats from all adult data...")
-            baseline_stats = calculate_phoneme_stats(full_adult_df, processor, vowels, sorted_vowels)
+            print("Calculating baseline stats from all adult data...")
+            baseline_stats = calculate_stats(full_adult_df, processor, vowels, sorted_vowels, valid_onsets)
             baseline_row = {'speaker_id': 'ALL', 'target_child_age': 'N/A', 'num_words': full_adult_df['word_count'].sum(), **baseline_stats}
             language_results.append(baseline_row)
             print("  - Baseline calculated.")
 
             # 2. Individual prolific speakers
             if speaker_ids:
-                print(f"Calculating phoneme stats for {len(speaker_ids)} selected speakers...")
+                print(f"Calculating stats for {len(speaker_ids)} selected speakers...")
                 for speaker_id in speaker_ids:
                     speaker_df = selected_speakers_df[selected_speakers_df['speaker_id'] == speaker_id]
                     age = speaker_df['target_child_age'].mode().iloc[0] if not speaker_df['target_child_age'].mode().empty else 'N/A'
-                    speaker_stats = calculate_phoneme_stats(speaker_df, processor, vowels, sorted_vowels)
+                    speaker_stats = calculate_stats(speaker_df, processor, vowels, sorted_vowels, valid_onsets)
                     speaker_row = {'speaker_id': speaker_id, 'target_child_age': age, 'num_words': speaker_word_counts.get(speaker_id, 0), **speaker_stats}
                     language_results.append(speaker_row)
                     print(f"  - Processed speaker: {speaker_id}")
@@ -171,7 +202,7 @@ def main():
                 print(f"No data was generated to save for {language}.")
                 continue
 
-            summary_df = pd.DataFrame(language_results)
+            summary_df = pd.DataFrame(language_results).fillna(0)
             
             # Define output path
             output_dir = "../output"
