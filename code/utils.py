@@ -39,11 +39,19 @@ def check_available_languages():
 PHONEME_MAPPING = {
     'Glides': {'j', 'w', 'ɥ', 'ɰ'},
     'Nasals': {'m', 'ɱ', 'n', 'ɲ', 'ŋ', 'ɳ', 'ɴ'},
-    'Liquids': {'l','ɫ','ɭ','ʎ','ʟ','ɹ','ɻ','r','ɾ','ɽ','ᴚ'},
+    'Liquids': {'l','ɫ','ɭ','ʎ','ʟ','ɹ','ɻ','r','ɾ','ɽ','ᴚ','rr'},
     'Fricatives': {'f','v','θ','ð','s','z','ʃ','ʒ','h','ɦ','ɸ','β','ʂ','ʐ','ɕ','ʑ','x','χ','ʁ','ç','ʝ'},
     'Vowels': {'i','y','ɨ','ʉ','ɯ','u','ɪ','ʏ','ʊ','e','ø','ɘ','ɵ','ɤ','o','ə','ɛ','œ','ɜ','ɞ','ʌ','ɔ','æ','ɐ','a','ɑ','ɒ', 'ɚ'},
-    'Consonants': {'p', 'b', 't', 'd', 'ʈ', 'ɖ', 'c', 'ɟ', 'k', 'g', 'q', 'ɢ', 'ʡ', 'ʔ', 'ɓ', 'ɗ', 'ʄ', 'ɠ', 'ʛ', 'ts', 'dz','ʙ', 'ʀ', 'd̠ʒ', 'tʃ', 'pf', 'kx', 'tʂ', 'dʐ', 'tɕ', 'dʑ', 'Ʋ','g','t̠ʃ'}
+    'Consonants': {'p', 'b', 't', 'd', 'ʈ', 'ɖ', 'c', 'ɟ', 'k', 'g', 'q', 'ɢ', 'ʡ', 'ʔ', 'ɓ', 'ɗ', 'ʄ', 'ɠ', 'ʛ', 'ts', 'dz','ʙ', 'ʀ', 'd̠ʒ', 'tʃ', 'pf', 'kx', 'tʂ', 'dʐ', 'tɕ', 'dʑ', 'Ʋ','g','t̠ʃ','t̠ʃ','ph','qh','kh','th','sh','t̺s̺','t̪̻s̪̻'}
 }
+
+# Create sets for each phoneme category for faster lookups
+FRICATIVES = PHONEME_MAPPING['Fricatives']
+GLIDES = PHONEME_MAPPING['Glides']
+LIQUIDS = PHONEME_MAPPING['Liquids']
+NASALS = PHONEME_MAPPING['Nasals']
+VOWELS = PHONEME_MAPPING['Vowels']
+CONSONANTS = PHONEME_MAPPING['Consonants']
 
 # Function to load the dataset from IPA-CHILDES
 def load_ipa_childes_dataset(LANGUAGE):
@@ -191,256 +199,151 @@ class PhonemeProcessor:
 
 
 def syllabify_word(word, sorted_vowels, valid_onsets):
-    """Syllabify a single word with support for diphthongs and maximum onset principle."""
+    """
+    Syllabifies a single IPA word based on the Maximum Onset Principle.
+    Vowels and syllabic consonants are treated as syllable nuclei.
+    """
     if not word:
         return ''
-    
-    # Remove spaces first
     word = word.replace(' ', '')
-    
-    # Define tone markers that should stay with vowels
-    tone_markers = {'˥', '˦', '˧', '˨', '˩'}
-    
-    # Find all vowel positions first, including any following tone markers
-    vowel_positions = []
+
+    diacritics_to_ignore = {
+        'ː', 'ˑ', 'ʰ', 'ʷ', 'ʲ', 'ˠ', 'ˤ', '̃', '̥', '̬', '̰', '̤', '̪', '̺', '̻', '̠', '̟', '̈', '̽', '̯', '˞',
+        '˥', '˦', '˧', '˨', '˩'
+    }
+    syllabic_marker = '̩'
+
+    # 1. Find all nuclei positions in the original word
+    nuclei_positions = []
     i = 0
     while i < len(word):
+        # Check for multi-character vowels (diphthongs) first
         vowel_found = None
         for vowel in sorted_vowels:
-            if i + len(vowel) <= len(word) and word[i:i+len(vowel)] == vowel:
+            if word[i:].startswith(vowel):
                 vowel_found = vowel
                 break
         
         if vowel_found:
-            vowel_start = i
-            vowel_end = i + len(vowel_found)
+            nuclei_positions.append((i, i + len(vowel_found), vowel_found))
+            i += len(vowel_found)
+            continue
+
+        # Check for syllabic consonants
+        # A syllabic consonant is a consonant followed by optional non-syllabic diacritics and then the syllabic marker.
+        char = word[i]
+        if char not in VOWELS and char not in diacritics_to_ignore and char != syllabic_marker:
+            # Look ahead for the syllabic marker
+            j = i + 1
+            while j < len(word) and word[j] in diacritics_to_ignore:
+                j += 1
             
-            # Include any tone markers that follow this vowel
-            while vowel_end < len(word) and word[vowel_end] in tone_markers:
-                vowel_end += 1
-            
-            # The complete vowel unit includes the vowel + any tone markers
-            complete_vowel_unit = word[vowel_start:vowel_end]
-            vowel_positions.append((vowel_start, vowel_end, complete_vowel_unit))
-            i = vowel_end
-        else:
-            i += 1
-    
-    if not vowel_positions:
-        return '/' + word  # No vowels found, return as single syllable
-    
-    if len(vowel_positions) == 1:
-        return '/' + word  # Only one vowel, return as single syllable
-    
-    syllables = []
-    
-    for vowel_idx, (start, end, vowel) in enumerate(vowel_positions):
-        syllable = ""
+            if j < len(word) and word[j] == syllabic_marker:
+                # Found a syllabic consonant cluster
+                end_pos = j + 1
+                nuclei_positions.append((i, end_pos, word[i:end_pos]))
+                i = end_pos
+                continue
         
-        # Add onset (consonants before this vowel)
-        if vowel_idx == 0:
-            # First vowel - take all consonants from beginning
+        i += 1
+
+    if not nuclei_positions:
+        return '/' + word
+    if len(nuclei_positions) == 1:
+        return '/' + word
+
+    # 2. Syllabify based on nuclei positions
+    syllables = []
+    for nucleus_idx, (start, end, nucleus) in enumerate(nuclei_positions):
+        if nucleus_idx == 0:
             onset = word[:start]
         else:
-            # Not first vowel - apply maximum onset principle
-            prev_vowel_end = vowel_positions[vowel_idx - 1][1]
-            consonants_between = word[prev_vowel_end:start]
+            prev_nucleus_end = nuclei_positions[nucleus_idx - 1][1]
+            consonants_between = word[prev_nucleus_end:start]
             
-            if len(consonants_between) == 0:
-                onset = ""
-            else:
-                # Apply maximum onset principle
-                # Try to find the longest valid onset from the consonants
-                best_onset = ""
-                
-                # Try all possible onsets from longest to shortest
+            best_onset = ""
+            if consonants_between:
                 for onset_len in range(len(consonants_between), 0, -1):
-                    potential_onset = consonants_between[-onset_len:]  # Take from the end
+                    potential_onset = consonants_between[-onset_len:]
                     if potential_onset in valid_onsets or onset_len == 1:
-                        # Valid onset found or single consonant (always valid)
                         best_onset = potential_onset
                         break
-                
-                onset = best_onset
-                
-                # Add remaining consonants to previous syllable as coda
-                coda_for_prev = consonants_between[:-len(onset)] if onset else consonants_between
-                if syllables and coda_for_prev:
-                    syllables[-1] += coda_for_prev
+            
+            onset = best_onset
+            coda_for_prev = consonants_between[:-len(onset)] if onset else consonants_between
+            if syllables and coda_for_prev:
+                syllables[-1] += coda_for_prev
         
-        # Add onset and vowel
-        syllable = onset + vowel
+        syllable = onset + nucleus
         
-        # Add coda if this is the last vowel
-        if vowel_idx == len(vowel_positions) - 1:
+        if nucleus_idx == len(nuclei_positions) - 1:
             coda = word[end:]
             syllable += coda
         
         syllables.append(syllable)
-    
+        
     return '/' + '/'.join(syllables) if syllables else ''
 
 
 def map_phonemes_to_categories(word, vowels=None, sorted_vowels=None):
     """
-    Maps each phoneme in a word to its category using the first letter of the category name
-    Handles complex IPA phonemes with diacritics and multi-character phonemes
-    Only phonemes explicitly defined in PHONEME_MAPPING are mapped to their categories
-    Diphthongs are mapped as single 'V' units, not 'VV'
-    Undefined phonemes are mapped to ''
-    
-    Args:
-        word (str): A word containing IPA phonemes
-        vowels (set, optional): Set of vowels including diphthongs
-        sorted_vowels (list, optional): List of vowels sorted by length (longest first)
-        
-    Returns:
-        str: The word with each phoneme replaced by its category letter
+    Maps each phoneme in a word to its category: V, C, F, G, L, N, or X for syllabic.
+    Ignores diacritics other than the syllabic marker.
     """
-    # Create a mapping from phoneme to category letter
-    phoneme_to_category = {}
-    
-    for category, phonemes in PHONEME_MAPPING.items():
-        category_letter = category[0].upper()  # First letter capitalized
-        for phoneme in phonemes:
-            phoneme_to_category[phoneme] = category_letter
-    
-    # Remove spaces first
     word = word.replace(' ', '')
-    
-    # Define diacritics that should be ignored or combined with base phonemes
-    diacritics = {
-        'ː',  # length marker
-        'ˑ',  # half-length marker
-        'ʰ',  # aspirated
-        'ʷ',  # labialized
-        'ʲ',  # palatalized
-        'ˠ',  # velarized
-        'ˤ',  # pharyngealized
-        '̃',   # nasalized
-        '̥',   # voiceless
-        '̬',   # voiced
-        '̰',   # creaky
-        '̤',   # breathy
-        '̪',   # dental
-        '̺',   # apical
-        '̻',   # laminal
-        '̠',   # retracted
-        '̟',   # advanced
-        '̈',   # centralized
-        '̽',   # mid-centralized
-        '̩',   # syllabic
-        '̯',   # non-syllabic
-        '˞',  # rhotacized
-        # Tone markers
-        '˥',  # high tone
-        '˦',  # mid-high tone
-        '˧',  # mid tone
-        '˨',  # mid-low tone
-        '˩',  # low tone
-        '˥˩', # high-low tone
-        '˩˥', # low-high tone
-        '˦˥', # mid-high-high tone
-        '˧˥', # mid-high tone
-        '˥˧', # high-mid tone
-        '˧˩', # mid-low tone
-        '˩˧', # low-mid tone
-        '˥˧˩', # high-mid-low tone
-        '˩˧˥', # low-mid-high tone
-        '˧˥˩', # mid-high-low tone
-        '˥˩˧', # high-low-mid tone
+    if not vowels:
+        vowels = VOWELS
+    if not sorted_vowels:
+        sorted_vowels = sorted(vowels, key=len, reverse=True)
+
+    diacritics_to_ignore = {
+        'ː', 'ˑ', 'ʰ', 'ʷ', 'ʲ', 'ˠ', 'ˤ', '̃', '̥', '̬', '̰', '̤', '̪', '̺', '̻', '̠', '̟', '̈', '̽', '̯', '˞',
+        '˥', '˦', '˧', '˨', '˩'
     }
+    syllabic_marker = '̩'
     
-    # If vowels and sorted_vowels are provided, use them to identify diphthongs
-    if sorted_vowels:
-        # First pass: identify and map diphthongs and vowels
-        mapped_word = ""
-        i = 0
-        while i < len(word):
-            matched = False
-            
-            # Try to match vowels (including diphthongs) first, longest first
-            for vowel in sorted_vowels:
-                if i + len(vowel) <= len(word) and word[i:i+len(vowel)] == vowel:
-                    mapped_word += 'V'  # Map all vowels/diphthongs to 'V'
-                    i += len(vowel)
-                    matched = True
-                    break
-            
-            if not matched:
-                # Try to match other phonemes
-                for length in range(min(4, len(word) - i), 0, -1):
-                    substring = word[i:i+length]
-                    
-                    # Check if this substring is a known phoneme (non-vowel)
-                    if substring in phoneme_to_category and phoneme_to_category[substring] != 'V':
-                        mapped_word += phoneme_to_category[substring]
-                        i += length
-                        matched = True
-                        break
-                    
-                    # Check if this is a base phoneme + diacritics
-                    if length > 1:
-                        base_phoneme = substring[0]
-                        diacritics_part = substring[1:]
-                        if (base_phoneme in phoneme_to_category and 
-                            phoneme_to_category[base_phoneme] != 'V' and
-                            all(char in diacritics for char in diacritics_part)):
-                            # Base phoneme with diacritics - map to base phoneme category
-                            mapped_word += phoneme_to_category[base_phoneme]
-                            i += length
-                            matched = True
-                            break
-            
-            if not matched:
-                # Check if it's a standalone diacritic (skip it)
-                if word[i] in diacritics:
-                    i += 1  # Skip diacritic
-                else:
-                    # If no match found, map to nothing for unknown phonemes
-                    mapped_word += ''
-                    i += 1
+    output = []
+    i = 0
+    while i < len(word):
+        # Determine the full phoneme cluster by consuming following diacritics
+        start = i
+        i += 1
+        while i < len(word) and (word[i] in diacritics_to_ignore or word[i] == syllabic_marker):
+            i += 1
+        cluster = word[start:i]
+
+        # Check for syllabic marker in the cluster
+        if syllabic_marker in cluster:
+            output.append('X')
+            continue
+
+        # Check for multi-character vowels (diphthongs)
+        # This check needs to be on a cleaned version of the cluster
+        base_phoneme = ''.join(c for c in cluster if c not in diacritics_to_ignore and c != syllabic_marker)
         
-        return mapped_word
-    
-    else:
-        # Fallback: original behavior when no vowel info is provided
-        # Try to match multi-character phonemes first (longest first)
-        mapped_word = ""
-        i = 0
-        while i < len(word):
-            matched = False
-            
-            # Try to match progressively longer substrings (up to 4 chars to handle phoneme + diacritics)
-            for length in range(min(4, len(word) - i), 0, -1):
-                substring = word[i:i+length]
-                
-                # Check if this substring is a known phoneme
-                if substring in phoneme_to_category:
-                    mapped_word += phoneme_to_category[substring]
-                    i += length
-                    matched = True
-                    break
-                
-                # Check if this is a base phoneme + diacritics
-                if length > 1:
-                    base_phoneme = substring[0]
-                    diacritics_part = substring[1:]
-                    if (base_phoneme in phoneme_to_category and 
-                        all(char in diacritics for char in diacritics_part)):
-                        # Base phoneme with diacritics - map to base phoneme category
-                        mapped_word += phoneme_to_category[base_phoneme]
-                        i += length
-                        matched = True
-                        break
-            
-            if not matched:
-                # Check if it's a standalone diacritic (skip it)
-                if word[i] in diacritics:
-                    i += 1  # Skip diacritic
-                else:
-                    # If no match found, map to nothing for unknown phonemes
-                    mapped_word += ''
-                    i += 1
+        matched = False
+        for vowel in sorted_vowels:
+            if base_phoneme == vowel:
+                output.append('V')
+                matched = True
+                break
+        if matched:
+            continue
         
-        return mapped_word
+        # Check other categories based on the first character of the cleaned base
+        if base_phoneme:
+            char = base_phoneme[0]
+            if char in VOWELS:
+                 output.append('V')
+            elif char in FRICATIVES:
+                output.append('F')
+            elif char in GLIDES:
+                output.append('G')
+            elif char in LIQUIDS:
+                output.append('L')
+            elif char in NASALS:
+                output.append('N')
+            elif char in CONSONANTS:
+                output.append('C')
+
+    return "".join(output)

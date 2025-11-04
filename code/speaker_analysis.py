@@ -118,7 +118,7 @@ def calculate_stats(df, processor, vowels, sorted_vowels, valid_onsets):
     stats = {}
     for phoneme, count in counts.items():
         stats[f'{phoneme}_count'] = count
-        stats[f'{phoneme}_freq'] = count / total_phonemes if total_phonemes > 0 else 0
+        # stats[f'{phoneme}_freq'] = count / total_phonemes if total_phonemes > 0 else 0
         
     # Add syllable pattern counts, prefixed with 'syl_'
     for pattern, count in syllable_pattern_counts.items():
@@ -144,6 +144,8 @@ def main():
         print(f"Processing all {len(languages)} languages.")
     else:
         languages = [args.language]
+
+    all_language_results = []
 
     for language in languages:
         print("-" * 50)
@@ -197,28 +199,56 @@ def main():
                     language_results.append(speaker_row)
                     print(f"  - Processed speaker: {speaker_id}")
 
-            # --- Save Results for the current language ---
+            # --- Save or Collect Results ---
             if not language_results:
                 print(f"No data was generated to save for {language}.")
                 continue
 
-            summary_df = pd.DataFrame(language_results).fillna(0)
-            
-            # Define output path
-            output_dir = "../output"
-            os.makedirs(output_dir, exist_ok=True)
-            
-            mode_suffix = "_manual" if args.manual else "_auto"
-            output_filename = os.path.join(output_dir, f'{language}_speaker_phoneme_summary{mode_suffix}.csv')
-            
-            summary_df.to_csv(output_filename, index=False, encoding='utf-8')
-            
-            print(f"\n🎉 Successfully generated speaker phoneme summary for {language}.")
-            print(f"Summary file saved to: {output_filename}")
+            if args.all:
+                # If running for all, add language column and append to master list
+                for row in language_results:
+                    row['language'] = language
+                all_language_results.extend(language_results)
+                print(f"Completed processing for {language}. Results added to combined list.")
+            else:
+                # If running for a single language, save it directly
+                summary_df = pd.DataFrame(language_results).fillna(0)
+                
+                output_dir = "../output"
+                os.makedirs(output_dir, exist_ok=True)
+                
+                mode_suffix = "_manual" if args.manual else "_auto"
+                output_filename = os.path.join(output_dir, f'{language}_speaker_phoneme_summary{mode_suffix}.csv')
+                
+                summary_df.to_csv(output_filename, index=False, encoding='utf-8')
+                
+                print(f"\n🎉 Successfully generated speaker phoneme summary for {language}.")
+                print(f"Summary file saved to: {output_filename}")
 
         except Exception as e:
             print(f"An error occurred while processing {language}: {e}")
             continue
+
+    # --- Final Save for --all option ---
+    if args.all and all_language_results:
+        print("\nCombining results from all languages into a single CSV...")
+        summary_df = pd.DataFrame(all_language_results).fillna(0)
+
+        # Reorder columns to have 'language' first
+        cols = summary_df.columns.tolist()
+        cols.insert(0, cols.pop(cols.index('language')))
+        summary_df = summary_df[cols]
+
+        output_dir = "../output"
+        os.makedirs(output_dir, exist_ok=True)
+        mode_suffix = "_manual" if args.manual else "_auto"
+        output_filename = os.path.join(output_dir, f'all_languages_speaker_phoneme_summary{mode_suffix}.csv')
+        
+        summary_df.to_csv(output_filename, index=False, encoding='utf-8')
+        
+        print(f"\n🎉 Successfully generated combined speaker phoneme summary for all languages.")
+        print(f"Summary file saved to: {output_filename}")
+
 
     print("-" * 50)
     print("All processing complete.")
