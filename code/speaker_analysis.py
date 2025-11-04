@@ -112,6 +112,7 @@ def calculate_stats(df, processor, vowels, sorted_vowels, valid_onsets):
         'C': all_patterns_str.count('C'), 'V': all_patterns_str.count('V'),
         'F': all_patterns_str.count('F'), 'G': all_patterns_str.count('G'),
         'L': all_patterns_str.count('L'), 'N': all_patterns_str.count('N'),
+        'X': all_patterns_str.count('X'),
     }
     total_phonemes = sum(counts.values())
     
