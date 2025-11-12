@@ -41,8 +41,8 @@ PHONEME_MAPPING = {
     'Nasals': {'m', 'ɱ', 'n', 'ɲ', 'ŋ', 'ɳ', 'ɴ'},
     'Liquids': {'l','ɫ','ɭ','ʎ','ʟ','ɹ','ɻ','r','ɾ','ɽ','ᴚ','rr'},
     'Fricatives': {'f','v','θ','ð','s','z','ʃ','ʒ','h','ɦ','ɸ','β','ʂ','ʐ','ɕ','ʑ','x','χ','ʁ','ç','ʝ'},
-    'Vowels': {'i','y','ɨ','ʉ','ɯ','u','ɪ','ʏ','ʊ','e','ø','ɘ','ɵ','ɤ','o','ə','ɛ','œ','ɜ','ɞ','ʌ','ɔ','æ','ɐ','a','ɑ','ɒ', 'ɚ'},
-    'Consonants': {'p', 'b', 't', 'd', 'ʈ', 'ɖ', 'c', 'ɟ', 'k', 'g', 'q', 'ɢ', 'ʡ', 'ɓ', 'ɗ', 'ʄ', 'ɠ', 'ʛ', 'ts', 'dz','ʙ', 'ʀ', 'd̠ʒ', 'tʃ', 'pf', 'kx', 'tʂ', 'dʐ', 'tɕ', 'dʑ', 'Ʋ','g','t̠ʃ','t̠ʃ','ph','qh','kh','th','sh','t̺s̺','t̪̻s̪̻','t͡s','t͡sʰ'}
+    'Vowels': {'i','y','ɨ','ʉ','ɯ','u','ɪ','ʏ','ʊ','e','ø','ɘ','ɵ','ɤ','o','ə','ɛ','œ','ɜ','ɞ','ʌ','ɔ','æ','ɐ','a','ɑ','ɒ', 'ɚ','a'},
+    'Consonants': {'p', 'b', 't', 'd', 'ʈ', 'ɖ', 'c', 'ɟ', 'k', 'g', 'q', 'ɢ', 'ʡ', 'ɓ', 'ɗ', 'ʄ', 'ɠ', 'ʛ', 'ts', 'dz','ʙ', 'ʀ', 'd̠ʒ', 'tʃ', 'pf', 'kx', 'tʂ', 'dʐ', 'tɕ', 'dʑ', 'Ʋ','g','t̠ʃ','t̠ʃ','ph','qh','kh','th','sh','t̺s̺','t̪̻s̪̻','t͡s','t͡sʰ','ɡ'}
     # 'ts' should be removed once Mandarin 't͡s','t͡sʰ' cases are fixed as a C
 }
 
@@ -298,14 +298,25 @@ def map_phonemes_to_categories(word, vowels=None, sorted_vowels=None):
     if not sorted_vowels:
         sorted_vowels = sorted(vowels, key=len, reverse=True)
 
-    # Create a master list of all multi-character phonemes, sorted longest to shortest.
-    # This ensures 'tʃ' is matched before 't', and diphthongs are matched before single vowels.
+    # Create a master list of all known phonemes, sorted longest to shortest.
     all_phonemes = set()
     for category_phonemes in PHONEME_MAPPING.values():
         all_phonemes.update(category_phonemes)
     # The provided sorted_vowels list is definitive for the current mode (auto/manual).
     all_phonemes.update(sorted_vowels)
     sorted_all_phonemes = sorted(list(all_phonemes), key=len, reverse=True)
+
+    # Create a reverse map from phoneme to category for quick lookup
+    phoneme_to_category = {}
+    for cat, phonemes in PHONEME_MAPPING.items():
+        letter = cat[0].upper()
+        for p in phonemes:
+            phoneme_to_category[p] = letter
+    # Ensure diphthongs from sorted_vowels are mapped to 'V'
+    for v in sorted_vowels:
+        if len(v) > 1:
+            phoneme_to_category[v] = 'V'
+
 
     diacritics_to_ignore = {
         'ː', 'ˑ', 'ʰ', 'ʷ', 'ʲ', 'ˠ', 'ˤ', '̃', '̥', '̬', '̰', '̤', '̪', '̺', '̻', '̠', '̟', '̈', '̽', '̯', '˞',
@@ -316,58 +327,35 @@ def map_phonemes_to_categories(word, vowels=None, sorted_vowels=None):
     output = []
     i = 0
     while i < len(word):
-        # 1. Prioritize matching longest multi-character phonemes (vowels and consonants).
+        # 1. Check for syllabic marker first to define a cluster
+        start = i
+        # Find the end of the current phoneme cluster (base char + diacritics)
+        i += 1
+        while i < len(word) and (word[i] in diacritics_to_ignore or word[i] == syllabic_marker):
+            i += 1
+        cluster = word[start:i]
+
+        if syllabic_marker in cluster:
+            output.append('X')
+            continue
+        
+        # If not syllabic, reset 'i' to process phoneme by phoneme from 'start'
+        i = start
+
+        # 2. Prioritize matching longest known phoneme (vowel or consonant).
         matched = False
         for phoneme in sorted_all_phonemes:
-            if len(phoneme) > 1 and word[i:].startswith(phoneme):
-                # Found a multi-character phoneme. Now find its category.
-                if phoneme in VOWELS: # This handles diphthongs
-                    output.append('V')
-                elif phoneme in FRICATIVES:
-                    output.append('F')
-                elif phoneme in GLIDES:
-                    output.append('G')
-                elif phoneme in LIQUIDS:
-                    output.append('L')
-                elif phoneme in NASALS:
-                    output.append('N')
-                elif phoneme in CONSONANTS:
-                    output.append('C')
-                
+            if word[i:].startswith(phoneme):
+                output.append(phoneme_to_category.get(phoneme, 'C')) # Default to 'C' if somehow not in map
                 i += len(phoneme)
                 matched = True
                 break
         if matched:
             continue
 
-        # 2. If no multi-character match, process the current single character and its diacritics.
-        start = i
+        # 3. If no known phoneme matches, it might be a single character we missed or a diacritic.
+        # We can just advance past it. This handles unknown symbols or leftover diacritics.
         i += 1
-        while i < len(word) and (word[i] in diacritics_to_ignore or word[i] == syllabic_marker):
-            i += 1
-        cluster = word[start:i]
 
-        # 3. Check for a syllabic marker in the cluster.
-        if syllabic_marker in cluster:
-            output.append('X')
-            continue
-
-        # 4. Classify the base phoneme, ignoring diacritics.
-        base_phoneme = ''.join(c for c in cluster if c not in diacritics_to_ignore and c != syllabic_marker)
-        
-        if base_phoneme:
-            char = base_phoneme[0]
-            if char in VOWELS:
-                 output.append('V')
-            elif char in FRICATIVES:
-                output.append('F')
-            elif char in GLIDES:
-                output.append('G')
-            elif char in LIQUIDS:
-                output.append('L')
-            elif char in NASALS:
-                output.append('N')
-            elif char in CONSONANTS:
-                output.append('C')
 
     return "".join(output)

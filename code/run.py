@@ -44,7 +44,7 @@ Examples:
     )
     
     parser.add_argument(
-        '--language', '-l',
+        '--language', '--l',
         type=str,
         choices=AVAILABLE_LANGUAGES,
         default='Mandarin',
